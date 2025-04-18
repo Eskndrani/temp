@@ -2,9 +2,9 @@
 #define ANIMATION_H
 
 #include <QObject>
-#include <QTimer>
-#include <QVector>
 #include <QPixmap>
+#include <QVector>
+#include <QTimer>
 
 class Animation : public QObject
 {
@@ -14,13 +14,11 @@ public:
     explicit Animation(QObject *parent = nullptr);
     ~Animation();
 
-    // Control methods
+    // Animation control
     void startAnimation();
     void stopAnimation();
     void pauseAnimation();
     void resetAnimation();
-
-    // Configuration methods
     void setFrameRate(int fps);
     void loopAnimation(bool loop);
     void setDuration(int milliseconds);
@@ -29,37 +27,43 @@ public:
     void addFrame(const QPixmap &frame);
     void addFrames(const QVector<QPixmap> &frames);
     void clearFrames();
-
-    // Frame sequence management
     void setFrameSequence(const QVector<int> &sequence);
     void resetFrameSequence();
+    void calculateFrameSequence();
+    
+    // New sprite sheet methods
+    void loadSpriteSheet(const QPixmap &spriteSheet, int frameWidth, int frameHeight, 
+                         int numFrames = -1, bool clearExistingFrames = true);
+    bool loadSpriteSheetFromFile(const QString &filePath, int frameWidth, int frameHeight, 
+                                int numFrames = -1, bool clearExistingFrames = true);
 
-    // State accessors
+    // Getters
     QPixmap getCurrentFrame() const;
     int getCurrentFrameIndex() const;
     int getFrameCount() const;
     bool isRunning() const;
     bool isLooping() const;
 
-public slots:
-    void nextFrame();
-
 signals:
     void frameChanged(int frameIndex);
     void animationFinished();
     void animationLooped();
 
-private:
-    void calculateFrameSequence();
+private slots:
+    void nextFrame();
 
+private:
     QVector<QPixmap> m_frames;
     QVector<int> m_frameSequence;
-    QTimer *m_timer;
     int m_currentFrameIndex;
     int m_frameRate;
     int m_duration;
     bool m_looping;
     bool m_running;
+    QTimer *m_timer;
+    
+    // Helper method to slice a sprite sheet
+    void sliceSpriteSheet(const QPixmap &spriteSheet, int frameWidth, int frameHeight, int numFrames);
 };
 
 #endif // ANIMATION_H

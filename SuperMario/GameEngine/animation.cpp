@@ -210,7 +210,7 @@ void Animation::nextFrame()
     emit frameChanged(getCurrentFrameIndex());
 }
 
-// New methods for sprite sheet handling
+// NEW METHODS FOR SPRITE SHEET HANDLING
 
 void Animation::loadSpriteSheet(const QPixmap &spriteSheet, int frameWidth, int frameHeight, 
                                int numFrames, bool clearExistingFrames)
@@ -250,11 +250,18 @@ void Animation::sliceSpriteSheet(const QPixmap &spriteSheet, int frameWidth, int
     int sheetWidth = spriteSheet.width();
     int sheetHeight = spriteSheet.height();
     
+    // Calculate how many frames fit in the sprite sheet
     int cols = sheetWidth / frameWidth;
     int rows = sheetHeight / frameHeight;
     
     int totalFramesInSheet = cols * rows;
     int framesToExtract = (numFrames > 0 && numFrames <= totalFramesInSheet) ? numFrames : totalFramesInSheet;
+    
+    qDebug() << "Slicing sprite sheet:" << sheetWidth << "x" << sheetHeight;
+    qDebug() << "Frame size:" << frameWidth << "x" << frameHeight;
+    qDebug() << "Grid size:" << cols << "columns x" << rows << "rows";
+    qDebug() << "Total frames in sheet:" << totalFramesInSheet;
+    qDebug() << "Frames to extract:" << framesToExtract;
     
     m_frames.reserve(m_frames.size() + framesToExtract);
     
@@ -263,6 +270,12 @@ void Animation::sliceSpriteSheet(const QPixmap &spriteSheet, int frameWidth, int
         for (int col = 0; col < cols && frameCount < framesToExtract; ++col) {
             QRect frameRect(col * frameWidth, row * frameHeight, frameWidth, frameHeight);
             QPixmap frame = spriteSheet.copy(frameRect);
+            
+            if (frame.isNull()) {
+                qDebug() << "Failed to extract frame at position:" << col << "," << row;
+                continue;
+            }
+            
             m_frames.append(frame);
             frameCount++;
         }
@@ -273,5 +286,5 @@ void Animation::sliceSpriteSheet(const QPixmap &spriteSheet, int frameWidth, int
         calculateFrameSequence();
     }
     
-    qDebug() << "Extracted" << frameCount << "frames from sprite sheet";
+    qDebug() << "Successfully extracted" << frameCount << "frames from sprite sheet";
 }

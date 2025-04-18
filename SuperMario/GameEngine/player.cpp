@@ -6,28 +6,28 @@
 #include <QPainter>
 
 Player::Player(QGraphicsItem *parent)
-    : QObject(nullptr),
-    QGraphicsItem(parent),
-    m_state(PlayerState::SMALL),
-    m_currentAnimation(nullptr),
-    m_movementState(MovementState::STANDING),
-    m_isAlive(true),
-    m_isInvincible(false),
-    m_isFacingRight(true),
-    m_isJumping(false),
-    m_isFalling(false),
-    m_isRunning(false),
-    m_isCrouching(false),
-    m_velocity(QPointF(0, 0)),
-    m_acceleration(QPointF(0, 0)),
-    m_gravity(0.5f),
-    m_jumpVelocity(15.0f),
-    m_invincibilityTimer(0),
-    m_fireballCooldown(0),
-    m_canDoubleJump(false),
-    m_hasDoubleJumped(false),
-    m_canDash(true),
-    m_dashCooldown(0)
+    : QGraphicsItem(parent),  // QGraphicsItem must come first in the inheritance list
+      QObject(nullptr),       // QObject second with null parent to avoid ambiguity
+      m_state(PlayerState::SMALL),
+      m_currentAnimation(nullptr),
+      m_movementState(MovementState::STANDING),
+      m_isAlive(true),
+      m_isInvincible(false),
+      m_isFacingRight(true),
+      m_isJumping(false),
+      m_isFalling(false),
+      m_isRunning(false),
+      m_isCrouching(false),
+      m_velocity(QPointF(0, 0)),
+      m_acceleration(QPointF(0, 0)),
+      m_gravity(0.5f),
+      m_jumpVelocity(15.0f),
+      m_invincibilityTimer(0),
+      m_fireballCooldown(0),
+      m_canDoubleJump(false),
+      m_hasDoubleJumped(false),
+      m_canDash(true),
+      m_dashCooldown(0)
 {
     // Set the object name for debugging
     setObjectName("Player");
@@ -217,26 +217,31 @@ void Player::advance(int phase)
     // Update the animation state based on current player state
     updateAnimationState();
 
-    // Update the current animation frame
-    if (m_currentAnimation) {
-        m_currentAnimation->nextFrame();
-    }
+    // Let the animation class handle its own frame timing rather than calling nextFrame() directly
+    // if (m_currentAnimation) {
+    //     m_currentAnimation->nextFrame();
+    // }
 }
 
 bool Player::isTouchingWall() const
 {
-    // Implement collision detection with walls
-    // This is a placeholder; actual implementation would check scene items
-    QList<QGraphicsItem*> collisions = scene()->collidingItems(this);
+    // More efficient collision detection
+    QList<QGraphicsItem*> items;
+    
+    // Only check items near the player's left or right edge instead of all colliding items
+    if (m_isFacingRight) {
+        // Check for wall to the right
+        QRectF searchArea = m_rightBox.translated(scenePos());
+        items = scene()->items(searchArea);
+    } else {
+        // Check for wall to the left
+        QRectF searchArea = m_leftBox.translated(scenePos());
+        items = scene()->items(searchArea);
+    }
 
-    for (QGraphicsItem* item : collisions) {
-        if (item->data(0).toString() == "wall") {
-            // Calculate if we're touching with left or right side
-            QRectF itemRect = item->sceneBoundingRect();
-            if ((m_leftBox.translated(scenePos()).intersects(itemRect) && !m_isFacingRight) ||
-                (m_rightBox.translated(scenePos()).intersects(itemRect) && m_isFacingRight)) {
-                return true;
-            }
+    for (QGraphicsItem* item : items) {
+        if (item != this && item->data(0).toString() == "wall") {
+            return true;
         }
     }
 
@@ -408,17 +413,34 @@ void Player::setCurrentAnimation(const QString &animationKey)
         // Set and start new animation
         m_currentAnimation = m_animations.value(animationKey);
         m_currentAnimation->startAnimation();
+    } else {
+        qWarning() << "Animation not found:" << animationKey;
     }
 }
 
 void Player::loadAnimations()
 {
-    // This method would load all animation sprites and create Animation objects
-    // For each player state (small, super, fire) and movement state (idle, running, etc.)
-
-    // Example (pseudo-code):
-    // m_animations["small_idle"] = new Animation(":/sprites/small_idle.png", frameWidth, frameHeight, frameCount, frameDelay);
-    // ... Load all animations...
+    // Actually load animations instead of just setting up mappings
+    // Small Mario animations
+    createAnimation("small_idle", ":/sprites/mario_small_idle.png", 32, 32, 1, 100);
+    createAnimation("small_running", ":/sprites/mario_small_run.png", 32, 32, 3, 100);
+    createAnimation("small_jumping", ":/sprites/mario_small_jump.png", 32, 32, 1, 100);
+    createAnimation("small_crouching", ":/sprites/mario_small_crouch.png", 32, 32, 1, 100);
+    createAnimation("small_dying", ":/sprites/mario_small_die.png", 32, 32, 1, 100);
+    
+    // Super Mario animations
+    createAnimation("super_idle", ":/sprites/mario_super_idle.png", 32, 64, 1, 100);
+    createAnimation("super_running", ":/sprites/mario_super_run.png", 32, 64, 3, 100);
+    createAnimation("super_jumping", ":/sprites/mario_super_jump.png", 32, 64, 1, 100);
+    createAnimation("super_crouching", ":/sprites/mario_super_crouch.png", 32, 64, 1, 100);
+    createAnimation("super_dying", ":/sprites/mario_super_die.png", 32, 64, 1, 100);
+    
+    // Fire Mario animations
+    createAnimation("fire_idle", ":/sprites/mario_fire_idle.png", 32, 64, 1, 100);
+    createAnimation("fire_running", ":/sprites/mario_fire_run.png", 32, 64, 3, 100);
+    createAnimation("fire_jumping", ":/sprites/mario_fire_jump.png", 32, 64, 1, 100);
+    createAnimation("fire_crouching", ":/sprites/mario_fire_crouch.png", 32, 64, 1, 100);
+    createAnimation("fire_dying", ":/sprites/mario_fire_die.png", 32, 64, 1, 100);
 
     // Setup animation mappings
     QHash<QString, QString> smallAnimations;
@@ -446,6 +468,33 @@ void Player::loadAnimations()
     m_animationSets[PlayerState::FIRE] = fireAnimations;
 }
 
+// Helper method to create animations
+void Player::createAnimation(const QString &name, const QString &imagePath, int frameWidth, int frameHeight, int frameCount, int frameDelay)
+{
+    Animation *animation = new Animation();
+    
+    // Check if we're using a sprite sheet
+    if (frameCount > 1) {
+        // Load sprite sheet and slice it
+        animation->loadSpriteSheetFromFile(imagePath, frameWidth, frameHeight, frameCount);
+    } else {
+        // Load single frame
+        QPixmap pixmap(imagePath);
+        if (!pixmap.isNull()) {
+            animation->addFrame(pixmap);
+        } else {
+            qWarning() << "Failed to load animation frame:" << imagePath;
+        }
+    }
+    
+    // Configure animation
+    animation->setFrameRate(1000 / frameDelay); // Convert delay to fps
+    animation->loopAnimation(true);
+    
+    // Store animation
+    m_animations[name] = animation;
+}
+
 void Player::setupCollisionBoxes()
 {
     // Set up collision boxes based on current state
@@ -468,6 +517,11 @@ void Player::setupCollisionBoxes()
 
 void Player::collectPowerUp(PowerUp *powerUp)
 {
+    if (!powerUp) {
+        qWarning() << "Null powerup passed to collectPowerUp";
+        return;
+    }
+    
     // Handle power-up collection
     switch (powerUp->type()) {
     case 0:  // Mushroom
@@ -546,6 +600,13 @@ void Player::setInvincible(bool invincible)
 
     // Visual indication of invincibility could go here
     // For example, making the player blink
+    if (invincible) {
+        // Starting blinking effect
+        setOpacity(0.7);
+    } else {
+        // Stop blinking
+        setOpacity(1.0);
+    }
 }
 
 void Player::debugInfo() const

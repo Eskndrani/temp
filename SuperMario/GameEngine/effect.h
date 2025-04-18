@@ -33,6 +33,8 @@ private:
     int m_duration;
     int m_elapsed;
     bool m_isPlaying;
+ QTimer *m_timer;
+    void updateEffect();
 };
 
 #endif

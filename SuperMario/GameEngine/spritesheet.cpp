@@ -18,13 +18,14 @@ SpriteSheet::SpriteSheet(const QPixmap &pixmap) : m_isLoaded(false)
 
 SpriteSheet::~SpriteSheet()
 {
+    // No heap allocations to clean up
 }
 
 bool SpriteSheet::loadFromFile(const QString &path)
 {
     m_isLoaded = m_spriteSheet.load(path);
     if (!m_isLoaded) {
-        qDebug() << "Failed to load sprite sheet from:" << path;
+        qWarning() << "Failed to load sprite sheet from:" << path; // Changed to qWarning for better visibility
     }
     return m_isLoaded;
 }
@@ -51,7 +52,7 @@ QPixmap SpriteSheet::getSprite(int x, int y, int width, int height) const
     if (x >= 0 && y >= 0 && x + width <= m_spriteSheet.width() && y + height <= m_spriteSheet.height()) {
         return m_spriteSheet.copy(x, y, width, height);
     } else {
-        qDebug() << "Sprite region out of bounds: (" << x << "," << y << "," << width << "," << height << ")";
+        qWarning() << "Sprite region out of bounds: (" << x << "," << y << "," << width << "," << height << ")";
         return QPixmap();
     }
 }
@@ -63,6 +64,8 @@ QVector<QPixmap> SpriteSheet::getSprites(int startX, int startY, int width, int 
     if (!m_isLoaded) {
         return sprites;
     }
+
+    sprites.reserve(count); // Pre-allocate for better performance
 
     for (int i = 0; i < count; ++i) {
         int col = i % columns;
@@ -87,6 +90,8 @@ QVector<QPixmap> SpriteSheet::getSpriteRow(int startX, int startY, int width, in
         return sprites;
     }
 
+    sprites.reserve(count); // Pre-allocate for better performance
+
     for (int i = 0; i < count; ++i) {
         int x = startX + i * (width + spacing);
 
@@ -106,6 +111,8 @@ QVector<QPixmap> SpriteSheet::getSpriteColumn(int startX, int startY, int width,
     if (!m_isLoaded) {
         return sprites;
     }
+
+    sprites.reserve(count); // Pre-allocate for better performance
 
     for (int i = 0; i < count; ++i) {
         int y = startY + i * (height + spacing);
@@ -134,6 +141,7 @@ QVector<QRect> SpriteSheet::detectSprites(int minWidth, int minHeight) const
     int width = image.width();
     int height = image.height();
 
+    // Create visited array only once (more efficient for large images)
     QVector<QVector<bool>> visited(width, QVector<bool>(height, false));
 
     for (int y = 0; y < height; ++y) {
@@ -158,7 +166,7 @@ QVector<QRect> SpriteSheet::detectSprites(int minWidth, int minHeight) const
                 minY = qMin(minY, p.y());
                 maxY = qMax(maxY, p.y());
 
-                // Check neighbors
+                // Check neighbors (4-way connectivity)
                 static const int dx[] = {-1, 0, 1, 0};
                 static const int dy[] = {0, -1, 0, 1};
 
@@ -199,7 +207,10 @@ SpriteSheet* SpriteSheet::extractSubSheet(int x, int y, int width, int height) c
     }
 
     SpriteSheet* subSheet = new SpriteSheet();
-    subSheet->loadFromPixmap(subPixmap);
+    if (!subSheet->loadFromPixmap(subPixmap)) {
+        delete subSheet; // Clean up if loading fails
+        return nullptr;
+    }
     return subSheet;
 }
 

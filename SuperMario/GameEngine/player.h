@@ -98,7 +98,7 @@ private:
     PlayerState m_state;
     Animation* m_currentAnimation;
     MovementState m_movementState;
-
+     void createAnimation(const QString &name, const QString &imagePath, int frameWidth, int frameHeight, int frameCount, int frameDelay);
     // Status flags
     bool m_isAlive;
     bool m_isInvincible;

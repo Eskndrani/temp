@@ -209,3 +209,69 @@ void Animation::nextFrame()
     // Emit frame changed signal
     emit frameChanged(getCurrentFrameIndex());
 }
+
+// New methods for sprite sheet handling
+
+void Animation::loadSpriteSheet(const QPixmap &spriteSheet, int frameWidth, int frameHeight, 
+                               int numFrames, bool clearExistingFrames)
+{
+    if (spriteSheet.isNull()) {
+        qDebug() << "Cannot load sprite sheet: Image is null";
+        return;
+    }
+    
+    if (frameWidth <= 0 || frameHeight <= 0) {
+        qDebug() << "Invalid frame dimensions:" << frameWidth << "x" << frameHeight;
+        return;
+    }
+    
+    if (clearExistingFrames) {
+        clearFrames();
+    }
+    
+    sliceSpriteSheet(spriteSheet, frameWidth, frameHeight, numFrames);
+}
+
+bool Animation::loadSpriteSheetFromFile(const QString &filePath, int frameWidth, int frameHeight, 
+                                       int numFrames, bool clearExistingFrames)
+{
+    QPixmap spriteSheet(filePath);
+    if (spriteSheet.isNull()) {
+        qDebug() << "Failed to load sprite sheet from:" << filePath;
+        return false;
+    }
+    
+    loadSpriteSheet(spriteSheet, frameWidth, frameHeight, numFrames, clearExistingFrames);
+    return true;
+}
+
+void Animation::sliceSpriteSheet(const QPixmap &spriteSheet, int frameWidth, int frameHeight, int numFrames)
+{
+    int sheetWidth = spriteSheet.width();
+    int sheetHeight = spriteSheet.height();
+    
+    int cols = sheetWidth / frameWidth;
+    int rows = sheetHeight / frameHeight;
+    
+    int totalFramesInSheet = cols * rows;
+    int framesToExtract = (numFrames > 0 && numFrames <= totalFramesInSheet) ? numFrames : totalFramesInSheet;
+    
+    m_frames.reserve(m_frames.size() + framesToExtract);
+    
+    int frameCount = 0;
+    for (int row = 0; row < rows && frameCount < framesToExtract; ++row) {
+        for (int col = 0; col < cols && frameCount < framesToExtract; ++col) {
+            QRect frameRect(col * frameWidth, row * frameHeight, frameWidth, frameHeight);
+            QPixmap frame = spriteSheet.copy(frameRect);
+            m_frames.append(frame);
+            frameCount++;
+        }
+    }
+    
+    // If we added frames and have no sequence yet, calculate one
+    if (frameCount > 0 && m_frameSequence.isEmpty()) {
+        calculateFrameSequence();
+    }
+    
+    qDebug() << "Extracted" << frameCount << "frames from sprite sheet";
+}

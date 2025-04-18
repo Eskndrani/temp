@@ -13,27 +13,37 @@ Effect::Effect(QGraphicsItem *parent)
       m_elapsed(0),
       m_isPlaying(false)
 {
+    // Create a timer for animation updates
+    m_timer = new QTimer(this);
+    connect(m_timer, &QTimer::timeout, this, &Effect::updateEffect);
 }
 
 Effect::~Effect()
 {
+    // The timer is parented to this object, so it will be deleted automatically
 }
 
 void Effect::playEffect()
 {
     m_isPlaying = true;
     m_elapsed = 0;
+    updateEffectParameters();
+    update();
     
-    QTimer::singleShot(16, [this]() {
-        m_elapsed += 16;
-        if (m_elapsed < m_duration) {
-            updateEffectParameters();
-            update();
-            QTimer::singleShot(16, this, SLOT(playEffect()));
-        } else {
-            m_isPlaying = false;
-        }
-    });
+    // Start the timer to update the effect every 16ms (approx 60fps)
+    m_timer->start(16);
+}
+
+void Effect::updateEffect()
+{
+    m_elapsed += 16;
+    if (m_elapsed < m_duration) {
+        updateEffectParameters();
+        update();
+    } else {
+        m_isPlaying = false;
+        m_timer->stop();
+    }
 }
 
 void Effect::setIntensity(int intensity)

@@ -23,7 +23,8 @@ public:
     virtual void takeDamage();
     virtual void die();
     bool detectPlayer(QGraphicsItem* player) const;
-
+QTimer *m_timer;
+    void updateEffect(); 
     // State queries
     bool isAlive() const { return m_isAlive; }
     bool isMovingLeft() const { return m_isMovingLeft; }

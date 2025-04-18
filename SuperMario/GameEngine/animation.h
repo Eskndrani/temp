@@ -31,7 +31,7 @@ public:
     void resetFrameSequence();
     void calculateFrameSequence();
     
-    // New sprite sheet methods
+    // NEW: Sprite sheet methods
     void loadSpriteSheet(const QPixmap &spriteSheet, int frameWidth, int frameHeight, 
                          int numFrames = -1, bool clearExistingFrames = true);
     bool loadSpriteSheetFromFile(const QString &filePath, int frameWidth, int frameHeight, 
@@ -62,7 +62,7 @@ private:
     bool m_running;
     QTimer *m_timer;
     
-    // Helper method to slice a sprite sheet
+    // NEW: Helper method to slice a sprite sheet
     void sliceSpriteSheet(const QPixmap &spriteSheet, int frameWidth, int frameHeight, int numFrames);
 };
 

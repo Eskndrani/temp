@@ -27,6 +27,12 @@ void SpriteSheetManager::cleanup()
 
 bool SpriteSheetManager::loadSpriteSheet(const QString &name, const QString &path)
 {
+    // Validate inputs
+    if (name.isEmpty() || path.isEmpty()) {
+        qWarning() << "Invalid parameters for loadSpriteSheet - name:" << name << "path:" << path;
+        return false;
+    }
+
     // Check if already loaded
     if (m_spriteSheets.contains(name)) {
         return true;
@@ -35,6 +41,7 @@ bool SpriteSheetManager::loadSpriteSheet(const QString &name, const QString &pat
     // Create new sprite sheet
     SpriteSheet *sheet = new SpriteSheet();
     if (!sheet->loadFromFile(path)) {
+        qWarning() << "Failed to load sprite sheet from path:" << path;
         delete sheet;
         return false;
     }
@@ -46,16 +53,26 @@ bool SpriteSheetManager::loadSpriteSheet(const QString &name, const QString &pat
 
 SpriteSheet* SpriteSheetManager::getSpriteSheet(const QString &name) const
 {
-    return m_spriteSheets.value(name, nullptr);
+    if (!m_spriteSheets.contains(name)) {
+        qWarning() << "Sprite sheet not found:" << name;
+        return nullptr;
+    }
+    return m_spriteSheets.value(name);
 }
 
 Animation* SpriteSheetManager::createRowAnimation(const QString &sheetName, int startX, int startY,
                                                   int width, int height, int frameCount,
                                                   int fps, bool loop, int spacing)
 {
+    // Parameter validation
+    if (sheetName.isEmpty() || width <= 0 || height <= 0 || frameCount <= 0 || fps <= 0) {
+        qWarning() << "Invalid parameters for createRowAnimation";
+        return nullptr;
+    }
+
     SpriteSheet* sheet = getSpriteSheet(sheetName);
     if (!sheet) {
-        qDebug() << "Sheet not found:" << sheetName;
+        qWarning() << "Sheet not found:" << sheetName;
         return nullptr;
     }
 
@@ -64,6 +81,12 @@ Animation* SpriteSheetManager::createRowAnimation(const QString &sheetName, int 
     animation->loopAnimation(loop);
 
     QVector<QPixmap> frames = sheet->getSpriteRow(startX, startY, width, height, frameCount, spacing);
+    if (frames.isEmpty()) {
+        qWarning() << "Failed to extract frames from sprite sheet:" << sheetName;
+        delete animation;
+        return nullptr;
+    }
+
     for (const QPixmap& frame : frames) {
         animation->addFrame(frame);
     }
@@ -77,20 +100,33 @@ Sprite* SpriteSheetManager::createCharacterSprite(const QString &sheetName,
                                                   const QMap<QString, int> &frameRates,
                                                   int spacing)
 {
+    // Parameter validation
+    if (sheetName.isEmpty() || animationFrames.isEmpty()) {
+        qWarning() << "Invalid parameters for createCharacterSprite";
+        return nullptr;
+    }
+
     SpriteSheet* sheet = getSpriteSheet(sheetName);
     if (!sheet) {
-        qDebug() << "Sheet not found:" << sheetName;
+        qWarning() << "Sheet not found:" << sheetName;
         return nullptr;
     }
 
     Sprite* sprite = new Sprite();
+    bool anyAnimationAdded = false;
 
     // For each animation state
     for (auto animName = animationFrames.begin(); animName != animationFrames.end(); ++animName) {
         QString name = animName.key();
         QRect frameRect = animName.value();
 
-        // Get frames count and rate
+        // Validate frame rectangle
+        if (frameRect.width() <= 0 || frameRect.height() <= 0) {
+            qWarning() << "Invalid frame rectangle for animation:" << name;
+            continue;
+        }
+
+        // Get frames count and rate with default values
         int frameCount = frameCountsPerRow.value(name, 1);
         int frameRate = frameRates.value(name, 10);
 
@@ -106,12 +142,35 @@ Sprite* SpriteSheetManager::createCharacterSprite(const QString &sheetName,
             frameCount, spacing
             );
 
+        if (frames.isEmpty()) {
+            qWarning() << "No frames extracted for animation:" << name;
+            delete anim;
+            continue;
+        }
+
         for (const QPixmap& frame : frames) {
+            if (frame.isNull()) {
+                qWarning() << "Null frame in animation:" << name;
+                continue;
+            }
             anim->addFrame(frame);
         }
 
-        // Add to sprite
-        sprite->addAnimation(name, anim);
+        // Add to sprite if animation has frames
+        if (anim->getFrameCount() > 0) {
+            sprite->addAnimation(name, anim);
+            anyAnimationAdded = true;
+        } else {
+            qWarning() << "Animation has no frames:" << name;
+            delete anim;
+        }
+    }
+
+    // If no animations were added, clean up and return null
+    if (!anyAnimationAdded) {
+        qWarning() << "No valid animations created for sprite from sheet:" << sheetName;
+        delete sprite;
+        return nullptr;
     }
 
     return sprite;
@@ -123,6 +182,7 @@ Sprite* SpriteSheetManager::createSimpleSprite(const QString &sheetName, int x, 
 {
     Animation* anim = createRowAnimation(sheetName, x, y, width, height, frameCount, fps, loop, spacing);
     if (!anim) {
+        qWarning() << "Failed to create animation for simple sprite";
         return nullptr;
     }
 
@@ -136,15 +196,31 @@ Sprite* SpriteSheetManager::createSimpleSprite(const QString &sheetName, int x, 
 SpriteSheet* SpriteSheetManager::extractCharacterSheet(const QString &sheetName, int characterIndex,
                                                        int characterWidth, int characterHeight)
 {
+    // Parameter validation
+    if (sheetName.isEmpty() || characterIndex < 0 || characterWidth <= 0 || characterHeight <= 0) {
+        qWarning() << "Invalid parameters for extractCharacterSheet";
+        return nullptr;
+    }
+
     SpriteSheet* sheet = getSpriteSheet(sheetName);
     if (!sheet) {
-        qDebug() << "Sheet not found:" << sheetName;
+        qWarning() << "Sheet not found:" << sheetName;
+        return nullptr;
+    }
+
+    // Check if the sheet is big enough
+    QSize sheetSize = sheet->size();
+    if (sheetSize.width() < characterWidth || sheetSize.height() < characterHeight) {
+        qWarning() << "Sheet size is too small for character dimensions";
         return nullptr;
     }
 
     // Calculate character position in the sheet
-    QSize sheetSize = sheet->size();
     int charactersPerRow = sheetSize.width() / characterWidth;
+    if (charactersPerRow == 0) {
+        qWarning() << "Invalid character width - larger than sheet width";
+        return nullptr;
+    }
 
     int row = characterIndex / charactersPerRow;
     int col = characterIndex % charactersPerRow;
@@ -152,75 +228,102 @@ SpriteSheet* SpriteSheetManager::extractCharacterSheet(const QString &sheetName,
     int x = col * characterWidth;
     int y = row * characterHeight;
 
+    // Check if the character position is within the sheet
+    if (x + characterWidth > sheetSize.width() || y + characterHeight > sheetSize.height()) {
+        qWarning() << "Character position is outside sheet boundaries";
+        return nullptr;
+    }
+
     // Extract the character region as a new sprite sheet
-    return sheet->extractSubSheet(x, y, characterWidth, characterHeight);
+    SpriteSheet* result = sheet->extractSubSheet(x, y, characterWidth, characterHeight);
+    if (!result) {
+        qWarning() << "Failed to extract character sub-sheet";
+    }
+    return result;
 }
 
 Sprite* SpriteSheetManager::loadCharacterSprite(const QString &sheetName, int characterRow, int paletteRow,
-                                                int frameWidth, int frameHeight, int framesCount)
+                                               int frameWidth, int frameHeight, int framesCount)
 {
+    // Parameter validation
+    if (sheetName.isEmpty() || characterRow < 0 || paletteRow < 0 || 
+        frameWidth <= 0 || frameHeight <= 0 || framesCount <= 0) {
+        qWarning() << "Invalid parameters for loadCharacterSprite";
+        return nullptr;
+    }
+
     SpriteSheet* sheet = getSpriteSheet(sheetName);
     if (!sheet) {
-        qDebug() << "Failed to get sprite sheet:" << sheetName;
+        qWarning() << "Failed to get sprite sheet:" << sheetName;
+        return nullptr;
+    }
+
+    // Check if the sheet is big enough
+    QSize sheetSize = sheet->size();
+    if (sheetSize.width() < frameWidth || sheetSize.height() < frameHeight) {
+        qWarning() << "Sheet size is too small for frame dimensions";
         return nullptr;
     }
 
     // Create a new sprite
     Sprite* characterSprite = new Sprite();
+    bool anyAnimationAdded = false;
 
-    // Define different animation states
-    QStringList animationStates = {"idle", "walk", "run", "jump", "fall"};
-    QMap<QString, int> frameStartPositions;
-    QMap<QString, int> frameCountsMap;
-    QMap<QString, int> frameSpeeds;
+    // Define different animation states with their configurations
+    struct AnimConfig {
+        QString name;
+        int startFrame;
+        int frameCount;
+        int fps;
+    };
 
-    // Configure animations based on the sprite sheet layout
-    frameStartPositions["idle"] = 0;
-    frameStartPositions["walk"] = 1;
-    frameStartPositions["run"] = 5;
-    frameStartPositions["jump"] = 10;
-    frameStartPositions["fall"] = 12;
-
-    frameCountsMap["idle"] = 1;
-    frameCountsMap["walk"] = 3;
-    frameCountsMap["run"] = 3;
-    frameCountsMap["jump"] = 1;
-    frameCountsMap["fall"] = 1;
-
-    frameSpeeds["idle"] = 5;
-    frameSpeeds["walk"] = 10;
-    frameSpeeds["run"] = 15;
-    frameSpeeds["jump"] = 5;
-    frameSpeeds["fall"] = 5;
+    QVector<AnimConfig> animConfigs = {
+        {"idle", 0, 1, 5},
+        {"walk", 1, 3, 10},
+        {"run", 5, 3, 15},
+        {"jump", 10, 1, 5},
+        {"fall", 12, 1, 5}
+    };
 
     // Calculate the Y position based on the character row and palette row
     int yOffset = characterRow * frameHeight;
+    
+    // Avoid making assumptions about exact layout - use a parameter for palette height multiplier
+    // Default to 1/6 of sheet height if palette row > 0
     if (paletteRow > 0) {
-        // If we're selecting a specific palette (color variation)
-        yOffset = paletteRow * sheet->size().height() / 6;  // Assuming there are 6 palettes in the sheet
+        int paletteHeight = sheet->size().height() / 6;  // Calculate palette height
+        yOffset = paletteRow * paletteHeight;
     }
 
     // Create animations for each state
-    for (const QString& state : animationStates) {
-        if (frameStartPositions.contains(state) && frameCountsMap.contains(state)) {
-            int startFrame = frameStartPositions[state];
-            int frameCount = frameCountsMap[state];
-            int fps = frameSpeeds.value(state, 10);
-
-            // Create animation for this state
-            Animation* anim = createRowAnimation(
-                sheetName,
-                startFrame * frameWidth, yOffset,
-                frameWidth, frameHeight,
-                frameCount, fps, true, 0
-                );
-
-            if (anim) {
-                characterSprite->addAnimation(state, anim);
-            } else {
-                qDebug() << "Failed to create animation for state:" << state;
-            }
+    for (const AnimConfig& config : animConfigs) {
+        // Check if we have enough frames in the sheet for this animation
+        if (config.startFrame + config.frameCount > framesCount) {
+            qWarning() << "Not enough frames for animation:" << config.name;
+            continue;
         }
+
+        // Create animation
+        Animation* anim = createRowAnimation(
+            sheetName,
+            config.startFrame * frameWidth, yOffset,
+            frameWidth, frameHeight,
+            config.frameCount, config.fps, true, 0
+        );
+
+        if (anim) {
+            characterSprite->addAnimation(config.name, anim);
+            anyAnimationAdded = true;
+        } else {
+            qWarning() << "Failed to create animation for state:" << config.name;
+        }
+    }
+
+    // If no animations were added, clean up and return null
+    if (!anyAnimationAdded) {
+        qWarning() << "No valid animations created for character sprite";
+        delete characterSprite;
+        return nullptr;
     }
 
     // Set default animation
@@ -231,10 +334,18 @@ Sprite* SpriteSheetManager::loadCharacterSprite(const QString &sheetName, int ch
 
 Sprite* SpriteSheetManager::loadMarioSprite(const QString &sheetName, int paletteIndex)
 {
+    // Parameter validation
+    if (sheetName.isEmpty() || paletteIndex < 0) {
+        qWarning() << "Invalid parameters for loadMarioSprite";
+        return nullptr;
+    }
+
     // Load the sprite sheet if not already loaded
     if (!m_spriteSheets.contains(sheetName)) {
+        // Here we're using sheetName both as the key and the file path
+        // This could be confusing - consider separating these parameters
         if (!loadSpriteSheet(sheetName, sheetName)) {
-            qDebug() << "Failed to load Mario sprite sheet";
+            qWarning() << "Failed to load Mario sprite sheet";
             return nullptr;
         }
     }
@@ -264,18 +375,30 @@ Sprite* SpriteSheetManager::loadMarioSprite(const QString &sheetName, int palett
     marioFrameRates["jump"] = 5;
     marioFrameRates["die"] = 5;
 
-    return createCharacterSprite(sheetName, marioAnimations, marioFrameCounts, marioFrameRates);
+    // Create the sprite
+    Sprite* sprite = createCharacterSprite(sheetName, marioAnimations, marioFrameCounts, marioFrameRates);
+    if (!sprite) {
+        qWarning() << "Failed to create Mario sprite";
+    }
+    
+    return sprite;
 }
 
 QMap<int, QPixmap> SpriteSheetManager::loadTileSet(const QString &sheetName, int tileWidth, int tileHeight)
 {
     QMap<int, QPixmap> tiles;
+    
+    // Parameter validation
+    if (sheetName.isEmpty() || tileWidth <= 0 || tileHeight <= 0) {
+        qWarning() << "Invalid parameters for loadTileSet";
+        return tiles;
+    }
 
     // Get or load the sheet
     SpriteSheet* sheet = getSpriteSheet(sheetName);
     if (!sheet) {
         if (!loadSpriteSheet(sheetName, sheetName)) {
-            qDebug() << "Failed to load tile sheet:" << sheetName;
+            qWarning() << "Failed to load tile sheet:" << sheetName;
             return tiles;
         }
         sheet = getSpriteSheet(sheetName);
@@ -283,6 +406,11 @@ QMap<int, QPixmap> SpriteSheetManager::loadTileSet(const QString &sheetName, int
 
     // Get sheet dimensions
     QSize sheetSize = sheet->size();
+    if (sheetSize.width() < tileWidth || sheetSize.height() < tileHeight) {
+        qWarning() << "Sheet size is too small for tile dimensions";
+        return tiles;
+    }
+
     int tilesPerRow = sheetSize.width() / tileWidth;
     int rowCount = sheetSize.height() / tileHeight;
 

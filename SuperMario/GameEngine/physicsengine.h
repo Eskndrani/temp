@@ -8,7 +8,6 @@
 #include <QGraphicsScene>
 #include "player.h"
 #include "enemy.h"
-#include "projectile.h"
 
 // Game state enum to configure physics for different environments
 enum class GameState {
@@ -90,12 +89,12 @@ private:
     float m_airResistance;
     float m_groundResistance;
     
-    // Game state
-    GameState m_gameState = GameState::NORMAL;
-    bool m_friendlyFire = false;
-    
     // Scene reference
     QGraphicsScene* m_scene;
+    
+    // Game state
+    GameState m_gameState;
+    bool m_friendlyFire;
     
     // Destruction queue for safe item removal
     QList<QGraphicsItem*> m_destructionQueue;

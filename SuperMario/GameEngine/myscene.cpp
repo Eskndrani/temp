@@ -31,11 +31,26 @@ MyScene::MyScene(QScrollBar* scrollBar, QObject* parent)
     
     connect(this, &MyScene::playSound, m_soundManager, &SoundManager::playSound);
     
+    // Connect player signals
+    connect(m_player, &Player::projectileFired, this, &MyScene::handlePlayerFireball);
+    
     initPlayField();
 }
 
 MyScene::~MyScene()
 {
+    // Clean up resources
+    if (m_timerId != 0) {
+        killTimer(m_timerId);
+        m_timerId = 0;
+    }
+    
+    // Remove items from scene before deleting to avoid double-delete
+    removeItem(m_player);
+    removeItem(m_score);
+    removeItem(m_timer);
+    removeItem(m_background);
+    
     delete m_player;
     delete m_score;
     delete m_timer;
@@ -48,6 +63,9 @@ MyScene::~MyScene()
     
     qDeleteAll(m_powerups);
     m_powerups.clear();
+    
+    // Clear platforms list without deleting items (they're owned by the scene)
+    m_platforms.clear();
 }
 
 void MyScene::timerEvent(QTimerEvent* event)
@@ -121,6 +139,9 @@ void MyScene::resetGame()
     qDeleteAll(m_powerups);
     m_powerups.clear();
     
+    // Clear platforms list without deleting items (already handled by clear())
+    m_platforms.clear();
+    
     m_player->resetState();
     
     m_score->reset();
@@ -149,6 +170,7 @@ void MyScene::gameOver()
         gameOverText->setZValue(100);
         addItem(gameOverText);
         
+        emit playSound("gameover");
         emit gameOverSignal();
     }
 }
@@ -165,6 +187,7 @@ void MyScene::levelComplete()
     levelCompleteText->setZValue(50);
     addItem(levelCompleteText);
     
+    emit playSound("levelcomplete");
     emit levelCompleteSignal();
     
     gameLevel++;
@@ -177,16 +200,17 @@ void MyScene::handleInputEvent(QKeyEvent* event)
         
         if (event->key() == Qt::Key_Left) {
             m_player->move("left");
-            emit playSound("jump");
         } else if (event->key() == Qt::Key_Right) {
             m_player->move("right");
         } else if (event->key() == Qt::Key_Space || event->key() == Qt::Key_Up) {
             m_player->jump();
             emit playSound("jump");
-       // } else if (event->key() == Qt::Key_F && m_player->hasFirePower()) {
-         //   m_player->shootFire();
-         //   emit playSound("fireball");
-       // }
+        } else if (event->key() == Qt::Key_F) {
+            // Fixed the commented out code
+            if (m_player->hasFirePower()) {
+                m_player->fireProjectile(); // Changed to match the proper method name
+                emit playSound("fireball");
+            }
         }
     }
     
@@ -198,20 +222,26 @@ void MyScene::handleInputEvent(QKeyEvent* event)
     }
 }
 
-void MyScene::updatePhysics()
+void MyScene::handleKeyReleaseEvent(QKeyEvent* event)
 {
-    m_physicsEngine->applyGravity(m_player);
-    m_physicsEngine->calculateTrajectory(m_player);
-    
-    for (Enemy* enemy : m_enemies) {
-        if (enemy->isAlive()) {
-            enemy->move();
+    if (gameRunning && !isPaused) {
+        m_inputManager->processKeyRelease(event);
+        
+        if (event->key() == Qt::Key_Left || event->key() == Qt::Key_Right) {
+            m_player->move("stop");
         }
     }
-    
-    for (PowerUp* powerup : m_powerups) {
-        powerup->move();
+}
+
+void MyScene::updatePhysics()
+{
+    // Set the physics engine's scene reference if not already set
+    if (m_physicsEngine->scene() != this) {
+        m_physicsEngine->setScene(this);
     }
+    
+    // Let the physics engine handle all physics updates
+    m_physicsEngine->update();
 }
 
 void MyScene::manageLevelTransition()
@@ -250,6 +280,7 @@ void MyScene::initPlayField()
         addItem(brick);
         m_platforms.append(brick);
         brick->setData(0, "platform");
+        brick->setData(1, false); // Not hit yet
     }
     
     QVector<QPoint> questionPositions = {
@@ -263,6 +294,7 @@ void MyScene::initPlayField()
         addItem(question);
         m_platforms.append(question);
         question->setData(0, "questionBlock");
+        question->setData(1, false); // Not hit yet
     }
     
     QVector<QPoint> pipePositions = {
@@ -322,14 +354,25 @@ void MyScene::initPlayField()
 
 void MyScene::movePlayer()
 {
+    // This method is now handled by the physics engine's update method
+    // The player's physics are processed in updatePhysics()
 }
 
 void MyScene::jumpPlayer()
 {
+    // Player jump is now triggered directly from handleInputEvent
+    // and processed by physics engine
+    if (m_player->isOnGround()) {
+        m_player->jump();
+        emit playSound("jump");
+    }
 }
 
 void MyScene::fallPlayer()
 {
+    // Falling is now handled automatically by the physics engine
+    // when the player is not supported by a platform
+    m_player->setMovementState(MovementState::FALLING);
 }
 
 void MyScene::updateGameLogic()
@@ -348,21 +391,43 @@ void MyScene::updateGameLogic()
     if (m_player->pos().x() > sceneWidth - 200) {
         levelComplete();
     }
+    
+    // Process any special input states (like holding down on pipes)
+    if (m_inputManager->isKeyPressed(Qt::Key_Down)) {
+        checkForWarpPipe();
+    }
 }
 
 void MyScene::updateCamera()
 {
     qreal playerX = m_player->pos().x();
     
+    // Keep player in the visible portion of the scene
     qreal newX = qMax(0.0, playerX - 300);
     
+    // Smooth camera movement
+    qreal currentX = m_scrollBar ? m_scrollBar->value() : 0;
+    qreal smoothFactor = 0.1; // Adjust for smoother or more responsive camera
+    qreal targetX = currentX + (newX - currentX) * smoothFactor;
+    
     if (m_scrollBar) {
-        m_scrollBar->setValue(newX);
+        m_scrollBar->setValue(targetX);
     }
 }
 
 void MyScene::detectCollisions()
 {
+    // Using the physics engine for collision detection and response
+    QList<QGraphicsItem*> allItems = items();
+    
+    // Let physics engine handle all collisions
+    for (int i = 0; i < allItems.size(); ++i) {
+        for (int j = i + 1; j < allItems.size(); ++j) {
+            m_physicsEngine->resolveCollisions(allItems[i], allItems[j]);
+        }
+    }
+    
+    // Additional game-specific collision handling
     handleCollisionWithPlatform();
     checkItemCollisions();
     checkEnemyCollisions();
@@ -383,6 +448,7 @@ void MyScene::checkItemCollisions()
             QRectF playerRect = m_player->sceneBoundingRect();
             QRectF blockRect = item->sceneBoundingRect();
             
+            // Only hit from below
             if (playerRect.top() > blockRect.bottom() - 10 &&
                 playerRect.top() < blockRect.bottom() + 10) {
                 
@@ -394,6 +460,7 @@ void MyScene::checkItemCollisions()
                         hitBlock->setPixmap(QPixmap(":/images/notebox.png"));
                     }
                     
+                    // Create power-up
                     if (rand() % 2 == 0) {
                         Mushroom* mushroom = new Mushroom();
                         mushroom->setPos(item->pos().x(), item->pos().y() - 32);
@@ -409,40 +476,12 @@ void MyScene::checkItemCollisions()
                     }
                 }
             }
-        } else if (item->data(0).toString() == "pipe") {
-            QRectF playerRect = m_player->sceneBoundingRect();
-            QRectF pipeRect = item->sceneBoundingRect();
-            
-            if (playerRect.bottom() < pipeRect.top() + 10 &&
-                playerRect.bottom() > pipeRect.top() - 10) {
-                if (m_inputManager->isKeyPressed(Qt::Key_Down)) {
-                    playHitWarp();
-                }
-            }
         } else if (item->data(0).toString() == "castle") {
             levelComplete();
         }
     }
     
-    QList<PowerUp*> collectedPowerups;
-    
-    for (PowerUp* powerup : m_powerups) {
-        if (m_player->collidesWithItem(powerup)) {
-            powerup->applyToPlayer(m_player);
-            
-            emit playSound("powerup");
-            
-            collectedPowerups.append(powerup);
-            
-            scoreIncrease(1000);
-        }
-    }
-    
-    for (PowerUp* powerup : collectedPowerups) {
-        m_powerups.removeOne(powerup);
-        removeItem(powerup);
-        delete powerup;
-    }
+    processPowerUpCollection();
 }
 
 void MyScene::checkEnemyCollisions()
@@ -462,8 +501,11 @@ void MyScene::checkEnemyCollisions()
             if (playerOnTop) {
                 enemy->takeDamage();
                 
+                // Bounce the player up after jumping on enemy
                 m_player->setPos(m_player->pos().x(), m_player->pos().y() - 10);
-                m_physicsEngine->applyForce(m_player, QPointF(0, -10));
+                QPointF jumpVelocity = m_player->velocity();
+                jumpVelocity.setY(-10);
+                m_player->setVelocity(jumpVelocity);
                 
                 emit playSound("kick");
                 
@@ -472,12 +514,42 @@ void MyScene::checkEnemyCollisions()
                 if (!enemy->isAlive()) {
                     defeatedEnemies.append(enemy);
                 }
-            } else {
+            } else if (!m_player->isInvincible()) {
                 m_player->takeDamage();
                 emit playSound("shrink");
                 
+                // Apply brief invincibility after taking damage
+                m_player->setInvincible(true);
+                QTimer::singleShot(1500, [this]() {
+                    if (m_player) {
+                        m_player->setInvincible(false);
+                    }
+                });
+                
                 if (!m_player->isAlive()) {
                     gameOver();
+                }
+            }
+        }
+        
+        // Also check if fireballs hit enemies
+        if (m_player->hasFirePower() && !m_projectiles.isEmpty()) {
+            for (QGraphicsItem* fireball : m_projectiles) {
+                if (fireball->collidesWithItem(enemy)) {
+                    enemy->takeDamage();
+                    emit playSound("kick");
+                    
+                    scoreIncrease(200);
+                    
+                    if (!enemy->isAlive()) {
+                        defeatedEnemies.append(enemy);
+                    }
+                    
+                    // Remove the fireball
+                    m_projectiles.removeOne(fireball);
+                    removeItem(fireball);
+                    delete fireball;
+                    break;
                 }
             }
         }
@@ -512,29 +584,84 @@ bool MyScene::handleCollisionWithPlatform()
             qreal minOverlap = qMin(qMin(overlapTop, overlapBottom), qMin(overlapLeft, overlapRight));
             
             if (minOverlap == overlapTop && playerRect.center().y() < platformRect.center().y()) {
+                // Landing on a platform
                 m_player->setPos(m_player->pos().x(), m_player->pos().y() - overlapTop);
-                m_player->setMovementState(MovementState::STANDING);
+                
+                // Only change to standing if the player was falling
+                if (m_player->movementState() == MovementState::FALLING) {
+                    m_player->setMovementState(MovementState::STANDING);
+                    m_player->land();
+                }
+                
+                // Update velocity
+                QPointF velocity = m_player->velocity();
+                velocity.setY(0);
+                m_player->setVelocity(velocity);
+                
                 onPlatform = true;
             } else if (minOverlap == overlapBottom && playerRect.center().y() > platformRect.center().y()) {
+                // Hitting a platform from below
                 m_player->setPos(m_player->pos().x(), m_player->pos().y() + overlapBottom);
+                
+                QPointF velocity = m_player->velocity();
+                if (velocity.y() < 0) {
+                    velocity.setY(0);
+                    m_player->setVelocity(velocity);
+                }
+                
                 m_player->setMovementState(MovementState::FALLING);
                 
                 if (platform->data(0).toString() == "questionBlock") {
                     checkItemCollisions();
                 }
             } else if (minOverlap == overlapLeft && playerRect.center().x() < platformRect.center().x()) {
+                // Collision from the left
                 m_player->setPos(m_player->pos().x() - overlapLeft, m_player->pos().y());
+                
+                QPointF velocity = m_player->velocity();
+                if (velocity.x() > 0) {
+                    velocity.setX(0);
+                    m_player->setVelocity(velocity);
+                }
             } else if (minOverlap == overlapRight && playerRect.center().x() > platformRect.center().x()) {
+                // Collision from the right
                 m_player->setPos(m_player->pos().x() + overlapRight, m_player->pos().y());
+                
+                QPointF velocity = m_player->velocity();
+                if (velocity.x() < 0) {
+                    velocity.setX(0);
+                    m_player->setVelocity(velocity);
+                }
             }
         }
     }
     
+    // Update player's ground state
+    m_player->setOnGround(onPlatform);
     return onPlatform;
 }
 
 void MyScene::processPowerUpCollection()
 {
+    QList<PowerUp*> collectedPowerups;
+    
+    for (PowerUp* powerup : m_powerups) {
+        if (m_player->collidesWithItem(powerup)) {
+            powerup->applyToPlayer(m_player);
+            
+            emit playSound("powerup");
+            
+            collectedPowerups.append(powerup);
+            
+            scoreIncrease(1000);
+        }
+    }
+    
+    for (PowerUp* powerup : collectedPowerups) {
+        m_powerups.removeOne(powerup);
+        removeItem(powerup);
+        delete powerup;
+    }
 }
 
 void MyScene::scoreIncrease(int value)
@@ -542,11 +669,86 @@ void MyScene::scoreIncrease(int value)
     m_score->addPoints(value);
 }
 
-void MyScene::playASound()
+void MyScene::playASound(const QString &soundName)
 {
+    emit playSound(soundName);
 }
 
 void MyScene::playHitWarp()
 {
     emit playSound("warp");
+}
+
+void MyScene::checkForWarpPipe()
+{
+    QList<QGraphicsItem*> collidingItems = m_player->collidingItems();
+    
+    for (QGraphicsItem* item : collidingItems) {
+        if (item->data(0).toString() == "pipe") {
+            QRectF playerRect = m_player->sceneBoundingRect();
+            QRectF pipeRect = item->sceneBoundingRect();
+            
+            // Check if player is on top of the pipe
+            if (playerRect.bottom() > pipeRect.top() && 
+                playerRect.bottom() < pipeRect.top() + 10 &&
+                playerRect.center().x() > pipeRect.left() + 10 &&
+                playerRect.center().x() < pipeRect.right() - 10) {
+                    
+                playHitWarp();
+                
+                // Animate player going down the pipe
+                QPropertyAnimation* anim = new QPropertyAnimation(m_player, "y");
+                anim->setDuration(1000);
+                anim->setStartValue(m_player->pos().y());
+                anim->setEndValue(m_player->pos().y() + 100);
+                anim->start(QAbstractAnimation::DeleteWhenStopped);
+                
+                // Change level or trigger secret area after animation
+                QTimer::singleShot(1200, this, &MyScene::manageLevelTransition);
+            }
+        }
+    }
+}
+
+void MyScene::handlePlayerFireball(QPointF position, bool facingRight)
+{
+    if (!m_player->hasFirePower()) return;
+    
+    // Create fireball object
+    QGraphicsPixmapItem* fireball = new QGraphicsPixmapItem(QPixmap(":/images/fireball.png"));
+    fireball->setPos(position);
+    fireball->setData(0, "projectile"); // Set type for collision detection
+    
+    // Add to scene and to tracking list
+    addItem(fireball);
+    m_projectiles.append(fireball);
+    
+    // Apply velocity using QPropertyAnimation
+    QPropertyAnimation* anim = new QPropertyAnimation(fireball, "x");
+    anim->setDuration(2000); // 2 seconds flight time
+    anim->setStartValue(position.x());
+    anim->setEndValue(position.x() + (facingRight ? 500 : -500)); // Travel distance
+    
+    // Gravity effect
+    QPropertyAnimation* yAnim = new QPropertyAnimation(fireball, "y");
+    yAnim->setDuration(2000);
+    yAnim->setStartValue(position.y());
+    yAnim->setKeyValueAt(0.5, position.y() - 50); // Arc upward
+    yAnim->setEndValue(position.y() + 100); // End lower
+    
+    // Group animations
+    QParallelAnimationGroup* group = new QParallelAnimationGroup;
+    group->addAnimation(anim);
+    group->addAnimation(yAnim);
+    
+    // Clean up when done
+    connect(group, &QParallelAnimationGroup::finished, [this, fireball]() {
+        if (m_projectiles.contains(fireball)) {
+            m_projectiles.removeOne(fireball);
+            removeItem(fireball);
+            delete fireball;
+        }
+    });
+    
+    group->start(QAbstractAnimation::DeleteWhenStopped);
 }

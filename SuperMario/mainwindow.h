@@ -5,6 +5,8 @@
 #include <QScrollBar>
 #include <QMediaPlayer>
 #include <QAudioOutput>
+#include <QSoundEffect>
+#include <QMap>
 #include "GameEngine/myscene.h"
 #include "GameEngine/soundmanager.h"
 
@@ -39,9 +41,14 @@ private:
     MyScene *gameScene;
     QScrollBar *horizontalScrollBar;
     SoundManager *soundManager;
-    QMediaPlayer *backgroundMusic;
-    QAudioOutput *audioOutput;
+    QMediaPlayer *backgroundMusic; // Keeping for backward compatibility
+    QAudioOutput *audioOutput;     // Keeping for backward compatibility
     QString currentUser;
+    
+    // New sound effect implementation
+    QMap<QString, QSoundEffect*> soundEffects;
+    void initializeSoundEffects();
+    void stopBackgroundMusic();
 
     void setupGame();
     void setupUI();

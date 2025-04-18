@@ -3,13 +3,13 @@
 #include <QDebug>
 
 Sprite::Sprite(QGraphicsItem *parent)
-    : QObject(nullptr),
-    QGraphicsPixmapItem(parent),
-    m_flipHorizontal(false),
-    m_flipVertical(false),
-    m_scaleX(1.0),
-    m_scaleY(1.0),
-    m_hasCustomCollisionBox(false)
+    : QGraphicsPixmapItem(parent),  // QGraphicsPixmapItem must come first in initialization
+      QObject(nullptr),             // QObject second with null parent
+      m_flipHorizontal(false),
+      m_flipVertical(false),
+      m_scaleX(1.0),
+      m_scaleY(1.0),
+      m_hasCustomCollisionBox(false)
 {
     // Center the origin point of the sprite
     setTransformOriginPoint(boundingRect().center());
@@ -26,6 +26,11 @@ Sprite::~Sprite()
 
 void Sprite::addAnimation(const QString &name, Animation *animation)
 {
+    if (!animation) {
+        qWarning() << "Tried to add null animation with name:" << name;
+        return;
+    }
+    
     if (m_animations.contains(name)) {
         delete m_animations[name]; // Delete existing animation
     }
@@ -51,12 +56,14 @@ void Sprite::addAnimation(const QString &name, Animation *animation)
 void Sprite::playAnimation(const QString &name)
 {
     if (!m_animations.contains(name)) {
-        qDebug() << "Animation not found:" << name;
+        qWarning() << "Animation not found:" << name;
         return;
     }
 
-    // Stop current animation if any
-    if (!m_currentAnimationName.isEmpty() && m_animations.contains(m_currentAnimationName)) {
+    // Stop current animation if any and it's different from the requested one
+    if (!m_currentAnimationName.isEmpty() && 
+        m_animations.contains(m_currentAnimationName) && 
+        m_currentAnimationName != name) {
         m_animations[m_currentAnimationName]->stopAnimation();
     }
 
@@ -89,18 +96,17 @@ void Sprite::loadSpriteSheet(const QString &path, int frameWidth, int frameCount
     m_currentSpriteSheet.load(path);
 
     if (m_currentSpriteSheet.isNull()) {
-        qDebug() << "Failed to load sprite sheet:" << path;
+        qWarning() << "Failed to load sprite sheet:" << path;
         return;
     }
-
-    // Store the sprite sheet for later frame extraction
-    m_currentSpriteSheet = m_currentSpriteSheet;
+    
+    // Removed redundant assignment: m_currentSpriteSheet = m_currentSpriteSheet;
 }
 
 void Sprite::extractFramesFromSpriteSheet(const QString &animationName, int startFrame, int endFrame)
 {
     if (m_currentSpriteSheet.isNull()) {
-        qDebug() << "No sprite sheet loaded";
+        qWarning() << "No sprite sheet loaded";
         return;
     }
 
@@ -120,6 +126,9 @@ void Sprite::extractFramesFromSpriteSheet(const QString &animationName, int star
 
     Animation* animation = m_animations[animationName];
 
+    // Clear existing frames from the animation
+    animation->clearFrames();
+
     // Calculate frame dimensions
     int frameHeight = m_currentSpriteSheet.height();
     int frameWidth = m_currentSpriteSheet.width() / (endFrame - startFrame + 1);
@@ -127,7 +136,11 @@ void Sprite::extractFramesFromSpriteSheet(const QString &animationName, int star
     // Extract and add frames
     for (int i = startFrame; i <= endFrame; ++i) {
         QPixmap frame = m_currentSpriteSheet.copy(i * frameWidth, 0, frameWidth, frameHeight);
-        animation->addFrame(frame);
+        if (frame.isNull()) {
+            qWarning() << "Failed to extract frame" << i << "from sprite sheet";
+        } else {
+            animation->addFrame(frame);
+        }
     }
 }
 
@@ -168,7 +181,7 @@ void Sprite::setRotation(qreal angle)
 QPixmap Sprite::getCurrentFrame() const
 {
     if (m_currentAnimationName.isEmpty() || !m_animations.contains(m_currentAnimationName)) {
-        return QPixmap();
+        return pixmap(); // Return current pixmap if no animation is running
     }
 
     return m_animations[m_currentAnimationName]->getCurrentFrame();
@@ -181,7 +194,14 @@ void Sprite::updateFrame(int frameIndex)
     }
 
     // Get the current frame from the animation
-    m_currentFrame = m_animations[m_currentAnimationName]->getCurrentFrame();
+    QPixmap newFrame = m_animations[m_currentAnimationName]->getCurrentFrame();
+    
+    if (newFrame.isNull()) {
+        qWarning() << "Current animation frame is null for animation:" << m_currentAnimationName;
+        return;
+    }
+    
+    m_currentFrame = newFrame;
 
     // Apply transformations and set the pixmap
     applyTransforms();
@@ -232,8 +252,6 @@ QRectF Sprite::collisionBox() const
     return boundingRect().translated(pos());
 }
 
-// New methods to fix compilation errors
-
 void Sprite::changeSprite(const QString &path)
 {
     QPixmap pixmap(path);
@@ -245,14 +263,23 @@ void Sprite::changeSprite(const QString &path)
         // Center the origin point after changing the sprite
         setTransformOriginPoint(boundingRect().center());
     } else {
-        qDebug() << "Failed to load sprite:" << path;
+        qWarning() << "Failed to load sprite:" << path;
     }
 }
 
 void Sprite::animate()
 {
-    // Update current animation if it exists
+    // Improved animation handling
     if (!m_currentAnimationName.isEmpty() && m_animations.contains(m_currentAnimationName)) {
-        m_animations[m_currentAnimationName]->startAnimation();
+        Animation* currentAnim = m_animations[m_currentAnimationName];
+        
+        // Only start if not already running
+        if (!currentAnim->isRunning()) {
+            currentAnim->startAnimation();
+        }
+        
+        // Otherwise, just let it continue running
+    } else {
+        qWarning() << "Cannot animate: No current animation set";
     }
 }
